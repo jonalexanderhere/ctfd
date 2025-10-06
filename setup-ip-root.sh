@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# CTFd IP-Only Setup Script
-# Script sederhana untuk setup CTFd dengan IP address dan HTTPS self-signed
+# CTFd IP-Only Setup Script untuk ROOT
+# Script khusus untuk VPS yang sudah dalam kondisi root
 
 set -e
 
@@ -16,41 +16,46 @@ echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                CTFd IP-Only Quick Setup                     ║"
 echo "║              Menggunakan IP Address + HTTPS                 ║"
+echo "║                    (ROOT VERSION)                           ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
 # Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   echo -e "${YELLOW}⚠️  Script dijalankan sebagai root. Menginstall dependencies...${NC}"
-   
-   # Install Docker if not exists
-   if ! command -v docker &> /dev/null; then
-       echo -e "${YELLOW}📦 Installing Docker...${NC}"
-       curl -fsSL https://get.docker.com -o get-docker.sh
-       sh get-docker.sh
-       rm get-docker.sh
-   fi
-   
-   # Install Docker Compose if not exists
-   if ! command -v docker-compose &> /dev/null; then
-       echo -e "${YELLOW}📦 Installing Docker Compose...${NC}"
-       curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-       chmod +x /usr/local/bin/docker-compose
-   fi
-   
-   # Create ctfd user if not exists
-   if ! id "ctfd" &>/dev/null; then
-       useradd -m -s /bin/bash ctfd
-       usermod -aG docker ctfd
-       echo -e "${GREEN}✅ User 'ctfd' berhasil dibuat${NC}"
-   fi
-   
-   # Change ownership of current directory
-   chown -R ctfd:ctfd /root/ctfd 2>/dev/null || true
-   
-   echo -e "${YELLOW}🔄 Menjalankan script sebagai user 'ctfd'...${NC}"
-   sudo -u ctfd bash -c "cd /root/ctfd && $0"
-   exit 0
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}❌ Script ini harus dijalankan sebagai root!${NC}"
+   echo "Gunakan: sudo ./setup-ip-root.sh"
+   exit 1
+fi
+
+echo -e "${GREEN}✅ Script dijalankan sebagai root${NC}"
+
+# Update system
+echo -e "${YELLOW}🔄 Mengupdate sistem...${NC}"
+apt-get update -y
+
+# Install required packages
+echo -e "${YELLOW}📦 Menginstall package yang diperlukan...${NC}"
+apt-get install -y curl wget openssl ufw
+
+# Install Docker if not exists
+if ! command -v docker &> /dev/null; then
+    echo -e "${YELLOW}📦 Installing Docker...${NC}"
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    rm get-docker.sh
+    echo -e "${GREEN}✅ Docker berhasil diinstall${NC}"
+else
+    echo -e "${GREEN}✅ Docker sudah terinstall${NC}"
+fi
+
+# Install Docker Compose if not exists
+if ! command -v docker-compose &> /dev/null; then
+    echo -e "${YELLOW}📦 Installing Docker Compose...${NC}"
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    echo -e "${GREEN}✅ Docker Compose berhasil diinstall${NC}"
+else
+    echo -e "${GREEN}✅ Docker Compose sudah terinstall${NC}"
 fi
 
 # Get VPS IP address
@@ -70,20 +75,11 @@ mkdir -p ssl
 
 # Generate self-signed SSL certificate
 echo -e "${YELLOW}🔐 Membuat SSL certificate self-signed...${NC}"
-if command -v openssl &> /dev/null; then
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout ssl/key.pem \
-        -out ssl/cert.pem \
-        -subj "/C=ID/ST=Indonesia/L=Jakarta/O=CTFd/OU=IT/CN=$VPS_IP" 2>/dev/null
-    echo -e "${GREEN}✅ SSL certificate berhasil dibuat${NC}"
-else
-    echo -e "${RED}❌ OpenSSL tidak ditemukan. Menginstall OpenSSL...${NC}"
-    sudo apt-get update && sudo apt-get install -y openssl
-    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-        -keyout ssl/key.pem \
-        -out ssl/cert.pem \
-        -subj "/C=ID/ST=Indonesia/L=Jakarta/O=CTFd/OU=IT/CN=$VPS_IP" 2>/dev/null
-fi
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout ssl/key.pem \
+    -out ssl/cert.pem \
+    -subj "/C=ID/ST=Indonesia/L=Jakarta/O=CTFd/OU=IT/CN=$VPS_IP" 2>/dev/null
+echo -e "${GREEN}✅ SSL certificate berhasil dibuat${NC}"
 
 # Create necessary directories
 echo -e "${YELLOW}📁 Membuat direktori yang diperlukan...${NC}"
@@ -94,20 +90,11 @@ mkdir -p .data/redis
 
 # Setup firewall
 echo -e "${YELLOW}🔥 Mengkonfigurasi firewall...${NC}"
-if command -v ufw &> /dev/null; then
-    sudo ufw allow 22
-    sudo ufw allow 80
-    sudo ufw allow 443
-    sudo ufw --force enable
-    echo -e "${GREEN}✅ Firewall berhasil dikonfigurasi${NC}"
-else
-    echo -e "${YELLOW}⚠️  UFW tidak ditemukan. Menginstall UFW...${NC}"
-    sudo apt-get update && sudo apt-get install -y ufw
-    sudo ufw allow 22
-    sudo ufw allow 80
-    sudo ufw allow 443
-    sudo ufw --force enable
-fi
+ufw allow 22
+ufw allow 80
+ufw allow 443
+ufw --force enable
+echo -e "${GREEN}✅ Firewall berhasil dikonfigurasi${NC}"
 
 # Start CTFd
 echo -e "${YELLOW}🚀 Menjalankan CTFd...${NC}"
@@ -128,7 +115,7 @@ echo -e "${YELLOW}🔍 Memeriksa status services...${NC}"
 docker-compose -f docker-compose.ip.yml ps
 
 # Create management script
-cat > manage-ctfd-ip.sh << 'EOF'
+cat > manage-ctfd-root.sh << 'EOF'
 #!/bin/bash
 
 case "$1" in
@@ -169,15 +156,16 @@ case "$1" in
         ;;
     ssl)
         echo "🔐 Regenerating SSL certificate..."
+        VPS_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipinfo.io/ip 2>/dev/null || hostname -I | awk '{print $1}' 2>/dev/null)
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout ssl/key.pem \
             -out ssl/cert.pem \
-            -subj "/C=ID/ST=Indonesia/L=Jakarta/O=CTFd/OU=IT/CN=$(curl -s ifconfig.me)"
+            -subj "/C=ID/ST=Indonesia/L=Jakarta/O=CTFd/OU=IT/CN=$VPS_IP"
         docker-compose -f docker-compose.ip.yml restart nginx
         echo "✅ SSL certificate regenerated!"
         ;;
     *)
-        echo "CTFd IP Management Script"
+        echo "CTFd Root Management Script"
         echo "Usage: $0 {start|stop|restart|logs|status|update|backup|ssl}"
         echo ""
         echo "Commands:"
@@ -193,10 +181,10 @@ case "$1" in
 esac
 EOF
 
-chmod +x manage-ctfd-ip.sh
+chmod +x manage-ctfd-root.sh
 
 # Create simple access script
-cat > access-ctfd.sh << EOF
+cat > access-ctfd-root.sh << EOF
 #!/bin/bash
 
 echo "🌐 CTFd Access Information"
@@ -214,13 +202,13 @@ echo "   - Klik 'Advanced' dan 'Proceed to site' untuk melanjutkan"
 echo "   - Atau tambahkan exception di browser"
 echo ""
 echo "🛠️  Management:"
-echo "   ./manage-ctfd-ip.sh status  - Cek status"
-echo "   ./manage-ctfd-ip.sh logs    - Lihat logs"
-echo "   ./manage-ctfd-ip.sh restart - Restart services"
+echo "   ./manage-ctfd-root.sh status  - Cek status"
+echo "   ./manage-ctfd-root.sh logs    - Lihat logs"
+echo "   ./manage-ctfd-root.sh restart - Restart services"
 echo ""
 EOF
 
-chmod +x access-ctfd.sh
+chmod +x access-ctfd-root.sh
 
 # Final status
 echo ""
@@ -232,18 +220,18 @@ echo "   HTTP:  http://$VPS_IP (redirect ke HTTPS)"
 echo "   HTTPS: https://$VPS_IP"
 echo ""
 echo -e "${BLUE}🛠️  Manajemen:${NC}"
-echo "   Status:  ./manage-ctfd-ip.sh status"
-echo "   Logs:    ./manage-ctfd-ip.sh logs"
-echo "   Restart: ./manage-ctfd-ip.sh restart"
-echo "   Stop:    ./manage-ctfd-ip.sh stop"
-echo "   Start:   ./manage-ctfd-ip.sh start"
+echo "   Status:  ./manage-ctfd-root.sh status"
+echo "   Logs:    ./manage-ctfd-root.sh logs"
+echo "   Restart: ./manage-ctfd-root.sh restart"
+echo "   Stop:    ./manage-ctfd-root.sh stop"
+echo "   Start:   ./manage-ctfd-root.sh start"
 echo ""
 echo -e "${YELLOW}⚠️  Catatan Penting:${NC}"
 echo "1. Browser akan menampilkan warning SSL (normal untuk self-signed)"
 echo "2. Klik 'Advanced' → 'Proceed to site' untuk melanjutkan"
 echo "3. SSL certificate berlaku 365 hari"
-echo "4. Jalankan './manage-ctfd-ip.sh ssl' untuk regenerate SSL"
+echo "4. Jalankan './manage-ctfd-root.sh ssl' untuk regenerate SSL"
 echo ""
 echo -e "${GREEN}✅ Setup selesai! CTFd siap digunakan di https://$VPS_IP${NC}"
 echo ""
-echo "Jalankan './access-ctfd.sh' untuk melihat informasi akses"
+echo "Jalankan './access-ctfd-root.sh' untuk melihat informasi akses"
